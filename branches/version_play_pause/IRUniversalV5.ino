@@ -27,12 +27,12 @@
 #include <IRremote.h> //See http://www.arcfn.com/2009/08/multi-protocol-infrared-remote-library.html
 #include <EEPROM.h>
 #include <EEPROMAnything.h>// http://arduino.cc/playground/Code/EEPROMWriteAnything
+#include "pitches.h"
 
 //**************Tonos del buzzer
-#include "pitches.h" //Para tonos del buzzer
+
  // notes in the melody:
-int melody[] = {
-  NOTE_C4, NOTE_G3,NOTE_G3, NOTE_A3, NOTE_G3,0, NOTE_B3, NOTE_C4};
+int melody[] = {NOTE_C4, NOTE_G3,NOTE_G3, NOTE_A3, NOTE_G3,0, NOTE_B3, NOTE_C4};
 
 // note durations: 4 = quarter note, 8 = eighth note, etc.:
 int noteDurations[] = {
@@ -41,7 +41,7 @@ int noteDurations[] = {
 int BUZZER_PIN = 9;
 //************* Fin tonos
   
-boolean pause = true; //Sirve para alternar entre play o pause cada vez que el sensor de distancia detecta algo
+boolean isOnPause = true; //Sirve para saber si está en pausa
 
 int RECV_PIN = 12; //IR detector/demodulator
 int STATUS_PIN = 13; //Visible LED
@@ -74,40 +74,98 @@ const int INTERVAL_EEPROM = 162;
 // ONLY with IR distance sensor (begin)                                                   *
 // Checking an object in sensor range to send only one code                               *
 //*****************************************************************************************
-const int DISTANCE_THRESHOLD = 500; //Higher values will denote object proximity 
+// El orden en el que hay que grabar los comandos debe ser: pausa, play, fastforward, backforward
+
+const int DISTANCE_THRESHOLD = 200; //Higher values will denote object proximity 
 int sensorPin = A0; //IR distance sensor                                                 
 int sensorValue = 0;  // to store sensor value               
+int firstAverage = 0;
+int secondAverage = 0;
+int lectura1, lectura2, lectura3;
 
 //Checking an object with the IR distance sensor
-void sensorProcess(){
-    // read the value from the sensor:
-  sensorValue = analogRead(sensorPin);
-  if (sensorValue  > DISTANCE_THRESHOLD){  
-    Serial.println();
-    Serial.print("First reading:"); 
-    Serial.println(sensorValue); 
-    delay(50); //delay between readings to avoid errors because of erratic reading
-    sensorValue = analogRead(sensorPin);
-    if (sensorValue  > DISTANCE_THRESHOLD){
-        //Second reading to confirm object proximity
-        Serial.print("Second reading:");
-        Serial.println(sensorValue); 
-        if (pause){
-          sendCode(0); //Sending first stored code
-          pause=false;
-        }else{
-          sendCode(1); //Sending second stored code
-          pause=true;
-        }
-        musiquita();
-        //delay(2000); //delay between readings to avoid errors
+void sensorProcess(){ 
+  firstAverage = media3lecturas();
+  Serial.print("*******firstAverage: ");
+  Serial.println(firstAverage);
+
+  if (firstAverage==999){
+    return; //Ha habido algún error y terminamos
+  }
+  if (firstAverage > DISTANCE_THRESHOLD){
+    //We have detected anything
+    musiquitaBreve();
+//    delay(1000); //wait 1 second
+    secondAverage  = media3lecturas();
+    while (abs(firstAverage-secondAverage) < 100){
+      //Mientras no se mueva mucho seguimos leyendo
+      secondAverage  = media3lecturas();
     }
-  }else{
-    Serial.println();
-    Serial.print("**Far:"); 
-    Serial.println(sensorValue);
+    Serial.print("**2222*secondAverage: ");
+    Serial.println(secondAverage);
+    tone(BUZZER_PIN, NOTE_DS8);
+    noTone(BUZZER_PIN);
+    if (secondAverage==999){
+      return; //Ha habido algún error y terminamos
+    }
+    if (secondAverage <= DISTANCE_THRESHOLD){
+     //We haven't detected nothing in the second readings 
+        if (!isOnPause){
+          Serial.println("Envio comando PAUSE");
+          sendCode(0); //Sending first stored code (pause)
+          isOnPause=true; //to next time
+          musiquita();
+        }else{
+          Serial.println("Envio comando PLAY");
+          sendCode(1); //Sending second stored code (play)
+          isOnPause=false; //to next time
+          musiquita();
+        }     
+    }else if (secondAverage > firstAverage){
+      //Highter
+      Serial.println("Envio comando BACKFORWARD");
+      for(int i=0; i<5; i++){ 
+        // sending the command 5 times to increase velocity
+        sendCode(3); //Sending fourth stored code (BackForward) 
+      }      
+      sendCode(3); //Sending fourth stored code (BackForward)            
+      isOnPause=false; //to next time      
+      musiquita();
+    }else{
+      //Closer
+      Serial.println("Envio comando FASTFORWARD");
+      for(int i=0; i<6; i++){ 
+        // sending the command 6 times to increase velocity
+        sendCode(2); //Sending third stored code (FastForward)
+      }
+      isOnPause=false; //to next time    
+      musiquita();     
+    } 
   }
 }
+
+
+//Devuelve 999 si ha habido algun error y no debe considerarse válida la media
+int media3lecturas(){
+  do
+  {
+    lectura1=analogRead(sensorPin);
+    delay(50); //delay between readings to avoid errors because of erratic reading
+    lectura2=analogRead(sensorPin);
+    delay(50); //delay between readings to avoid errors because of erratic reading
+    lectura3=analogRead(sensorPin);
+    delay(50);
+//    if (lectura2 > (lectura1+75) || lectura2 < (lectura1-75) ||
+//        lectura3 > (lectura1+75) || lectura3 < (lectura1-75)){
+//          return 999; 
+//        }
+  //Alguna de las lecturas tiene demasiada diferencia y no lo consideramos válido
+  }while (lectura2 > (lectura1+75) || lectura2 < (lectura1-75) ||
+          lectura3 > (lectura1+75) || lectura3 < (lectura1-75));
+  return (lectura1 + lectura2 + lectura3)/3; //solo salimos si las tres lecturas son similares
+}
+
+
 //*****************************************************************************************
 // ONLY with IR distance sensor (end)                                                     *
 //*****************************************************************************************
@@ -382,7 +440,27 @@ void musiquita(){
     delay(pauseBetweenNotes);
     // stop the tone playing:
     noTone(BUZZER_PIN);
-    digitalWrite(BUZZER_PIN, LOW);
-  }
+//    digitalWrite(BUZZER_PIN, LOW);
+  } 
 }
 
+  // Emite la musica breve por el buzzer
+void musiquitaBreve(){
+  // iterate over the notes of the melody:
+  for (int thisNote = 0; thisNote < 1; thisNote++) {
+
+    // to calculate the note duration, take one second 
+    // divided by the note type.
+    //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
+    int noteDuration = 1000/noteDurations[thisNote];
+    tone(BUZZER_PIN, melody[thisNote],noteDuration);
+
+    // to distinguish the notes, set a minimum time between them.
+    // the note's duration + 30% seems to work well:
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);
+    // stop the tone playing:
+    noTone(BUZZER_PIN);
+//    digitalWrite(BUZZER_PIN, LOW);
+  }
+}
