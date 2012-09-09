@@ -41,7 +41,7 @@ int noteDurations[] = {
 int BUZZER_PIN = 9;
 //************* Fin tonos
   
-boolean isOnPause = true; //Sirve para saber si está en pausa
+boolean isOnPlay = true; //Sirve para saber si está en pausa
 
 int RECV_PIN = 12; //IR detector/demodulator
 int STATUS_PIN = 13; //Visible LED
@@ -82,6 +82,7 @@ int sensorValue = 0;  // to store sensor value
 int firstAverage = 0;
 int secondAverage = 0;
 int lectura1, lectura2, lectura3;
+const int NUM_ENVIOS_CONSECUTIVOS = 5;
 
 //Checking an object with the IR distance sensor
 void sensorProcess(){ 
@@ -101,49 +102,47 @@ void sensorProcess(){
       //Mientras no se mueva mucho seguimos leyendo
       secondAverage  = media3lecturas();
     }
-    Serial.print("**2222*secondAverage: ");
+    Serial.print("***secondAverage: ");
     Serial.println(secondAverage);
-    tone(BUZZER_PIN, NOTE_DS8);
-    noTone(BUZZER_PIN);
     if (secondAverage==999){
       return; //Ha habido algún error y terminamos
     }
     if (secondAverage <= DISTANCE_THRESHOLD){
      //We haven't detected nothing in the second readings 
-        if (!isOnPause){
-          Serial.println("Envio comando PAUSE");
+        if (isOnPlay){
+//          Serial.println("Envio comando PAUSE");
           sendCode(0); //Sending first stored code (pause)
-          isOnPause=true; //to next time
+          isOnPlay=false; //to next time
           musiquita();
         }else{
-          Serial.println("Envio comando PLAY");
+//          Serial.println("Envio comando PLAY");
           sendCode(1); //Sending second stored code (play)
-          isOnPause=false; //to next time
+          isOnPlay=true; //to next time
           musiquita();
         }     
     }else if (secondAverage > firstAverage){
-      //Highter
-      Serial.println("Envio comando BACKFORWARD");
-      for(int i=0; i<5; i++){ 
-        // sending the command 5 times to increase velocity
-        sendCode(3); //Sending fourth stored code (BackForward) 
-      }      
-      sendCode(3); //Sending fourth stored code (BackForward)            
-      isOnPause=false; //to next time      
-      musiquita();
+//    Closer
+//    Serial.println("Envio comando BACKFORWARD");      
+      sendCommandManyTimes(3, NUM_ENVIOS_CONSECUTIVOS);
+      isOnPlay=false; //to next time      
     }else{
-      //Closer
-      Serial.println("Envio comando FASTFORWARD");
-      for(int i=0; i<6; i++){ 
-        // sending the command 6 times to increase velocity
-        sendCode(2); //Sending third stored code (FastForward)
-      }
-      isOnPause=false; //to next time    
-      musiquita();     
+//    Highter
+//    Serial.println("Envio comando FASTFORWARD"); 
+      sendCommandManyTimes(2, NUM_ENVIOS_CONSECUTIVOS);
+      isOnPlay=false; //to next time 
     } 
   }
 }
 
+void sendCommandManyTimes(int command, int times){
+      musiquita();
+      for(int i=1;  i<=times; i++){ 
+        sendCode(command); 
+        if (i<times){
+          delay(300); //Extra delay between commands sending multiple commands except last time
+        }
+      }           
+}
 
 //Devuelve 999 si ha habido algun error y no debe considerarse válida la media
 int media3lecturas(){
@@ -426,13 +425,13 @@ void codesReceiveProcess(){
 // Emite la musica por el buzzer
 void musiquita(){
   // iterate over the notes of the melody:
-  for (int thisNote = 0; thisNote < 8; thisNote++) {
+  for (int thisNote = 0; thisNote < 2; thisNote++) {
 
     // to calculate the note duration, take one second 
     // divided by the note type.
     //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
     int noteDuration = 1000/noteDurations[thisNote];
-    tone(BUZZER_PIN, melody[thisNote],noteDuration);
+    tone(BUZZER_PIN, melody[thisNote], noteDuration);
 
     // to distinguish the notes, set a minimum time between them.
     // the note's duration + 30% seems to work well:
@@ -446,12 +445,21 @@ void musiquita(){
 
   // Emite la musica breve por el buzzer
 void musiquitaBreve(){
+    int noteDuration = 1000/noteDurations[0];
+    tone(BUZZER_PIN, melody[0], noteDuration);
+    // to distinguish the notes, set a minimum time between them.
+    // the note's duration + 30% seems to work well:
+    int pauseBetweenNotes = noteDuration * 1.30;
+    delay(pauseBetweenNotes);    
+    // stop the tone playing:
+    noTone(BUZZER_PIN);
+  }
+  
+    // Emite la musica breve por el buzzer
+void musiquitaMenosBreve(){
   // iterate over the notes of the melody:
   for (int thisNote = 0; thisNote < 1; thisNote++) {
 
-    // to calculate the note duration, take one second 
-    // divided by the note type.
-    //e.g. quarter note = 1000 / 4, eighth note = 1000/8, etc.
     int noteDuration = 1000/noteDurations[thisNote];
     tone(BUZZER_PIN, melody[thisNote],noteDuration);
 
